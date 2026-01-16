@@ -1,0 +1,5 @@
+{
+  "name": "Temperature Profile Master",
+  "description": "A professional tool for managing, visualizing, and analyzing temperature profiles using Firebase and AI.",
+  "requestFramePermissions": []
+}
