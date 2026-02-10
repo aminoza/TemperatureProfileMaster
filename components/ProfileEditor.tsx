@@ -30,7 +30,7 @@ const AutoResizeTextarea = ({
   const baseStyles = "px-3 py-2 text-base font-sans leading-snug";
 
   return (
-    <div className="relative grid w-full">
+    <div className="relative grid w-full h-full min-h-[42px]">
       {/* Ghost element: drives the width and height of the container */}
       <div 
         className={`${className} ${baseStyles} invisible whitespace-pre-wrap break-words overflow-hidden border border-transparent print:visible`}
@@ -118,6 +118,24 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
       temperature: Number(step.targetTemp)
     }));
   }, [stepsWithCalculations]);
+
+  // Helper to calculate rate
+  const getStepRate = (step: ProfileStep, index: number) => {
+    if (step.type !== 'RAMP') return null;
+
+    const prevTarget = index > 0 
+      ? stepsWithCalculations[index - 1].targetTemp 
+      : (step.settingTemp ?? 25);
+    
+    const durationMins = step.duration * 60;
+    
+    if (durationMins <= 0) return 'Max';
+    
+    const diff = Math.abs(step.targetTemp - prevTarget);
+    const rate = diff / durationMins;
+    
+    return rate.toFixed(2);
+  };
 
   // --- Handlers ---
 
@@ -318,6 +336,7 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
         { header: 'Objective', key: 'objective', width: 30 },
         { header: 'Setting (°C)', key: 'setting', width: 15 },
         { header: 'Target (°C)', key: 'target', width: 15 },
+        { header: 'Rate (°C/min)', key: 'rate', width: 15 }, // Added Rate Column
         { header: 'Criteria', key: 'criteria', width: 20 },
         { header: 'Position', key: 'position', width: 15 },
         { header: 'Duration (h)', key: 'duration', width: 15 },
@@ -338,12 +357,15 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
 
       // Add Data Rows
       stepsWithCalculations.forEach((step, index) => {
+        const rate = getStepRate(step, index) || '-';
+
         const row = sheet.addRow({
           index: index + 1,
           type: step.type,
           objective: step.objective || '-',
           setting: step.settingTemp,
           target: step.targetTemp,
+          rate: rate,
           criteria: step.criteria || '-',
           position: step.position || '-',
           duration: step.duration,
@@ -353,11 +375,11 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
         });
 
         // Center align numerical/short columns
-        [1, 2, 4, 5, 8, 9, 10].forEach(colIdx => {
+        [1, 2, 4, 5, 6, 9, 10, 11].forEach(colIdx => {
           row.getCell(colIdx).alignment = { vertical: 'top', horizontal: 'center' };
         });
         // Left align text columns
-        [3, 6, 7, 11].forEach(colIdx => {
+        [3, 7, 8, 12].forEach(colIdx => {
            row.getCell(colIdx).alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
         });
       });
@@ -441,7 +463,7 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden print:h-auto print:overflow-visible print:bg-white print:block">
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
-          height: 8px;
+          height: 10px;
           width: 8px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
@@ -451,6 +473,7 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
         .custom-scrollbar::-webkit-scrollbar-thumb {
           background: #cbd5e1;
           border-radius: 4px;
+          border: 2px solid #f1f5f9;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: #94a3b8;
@@ -611,9 +634,285 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
             </div>
           </div>
 
-          {/* Section 2: Timeline Details (Table Layout) */}
+          {/* Section 3: Profile Steps Table (Transposed & Editable) */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col print:hidden">
+            <div className="p-6 flex items-center justify-between border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-gray-100 rounded-md">
+                  <Clock className="w-5 h-5 text-gray-600" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-800">Profile Steps (Editable)</h2>
+              </div>
+              <button
+                onClick={handleAddStep}
+                className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded-md text-base font-medium flex items-center gap-1.5 transition-all shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Add Step
+              </button>
+            </div>
+
+            <div className="p-6">
+              <div className="border border-gray-200 rounded-lg overflow-x-auto bg-white shadow-sm custom-scrollbar">
+                <table className="min-w-full border-collapse">
+                  <thead>
+                    <tr>
+                       {/* Sticky Property Header */}
+                       <th className="sticky left-0 z-20 bg-gray-50 border-b border-r border-gray-200 p-3 text-sm font-bold text-gray-500 uppercase w-48 min-w-[192px] text-left">
+                          Property
+                       </th>
+                       {/* Step Column Headers */}
+                       {stepsWithCalculations.map((step, idx) => {
+                          const stepColor = STEP_COLORS[idx % STEP_COLORS.length];
+                          return (
+                            <th key={step.id} className="min-w-[200px] p-0 border-b border-gray-100">
+                               <div 
+                                  className="h-10 flex items-center justify-center text-sm font-bold text-white uppercase tracking-wide w-full"
+                                  style={{ backgroundColor: stepColor }}
+                               >
+                                 Step {idx + 1}
+                               </div>
+                            </th>
+                          );
+                       })}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                     
+                     {/* Row: Type */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-middle">
+                           Step Type
+                        </th>
+                        {stepsWithCalculations.map((step, index) => (
+                           <td key={step.id} className="p-3 border-r border-gray-50 align-top">
+                              <div className="relative">
+                                <select 
+                                  value={step.type}
+                                  onChange={(e) => handleUpdateStep(step.id, 'type', e.target.value)}
+                                  className="appearance-none w-full border border-gray-300 text-gray-700 py-2 px-3 rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold bg-white"
+                                >
+                                  <option value="Start">Start</option>
+                                  <option value="RAMP">RAMP</option>
+                                  <option value="HOLD">HOLD</option>
+                                  <option value="OFF">OFF</option>
+                                  <option value="END">END</option>
+                                </select>
+                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                  <ArrowRight className="h-3 w-3 opacity-50" />
+                                </div>
+                              </div>
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Objective */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-top">
+                           วัตถุประสงค์
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-2 border-r border-gray-50 align-top">
+                              <AutoResizeTextarea
+                                value={step.objective || ''}
+                                onChange={(e) => handleUpdateStep(step.id, 'objective', e.target.value)}
+                                className="border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-700 bg-white"
+                                placeholder="-"
+                              />
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Setting Temp */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-middle">
+                           Setting (°C)
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-3 border-r border-gray-50 align-top">
+                              <input
+                                type="number"
+                                value={step.settingTemp ?? ''}
+                                onChange={(e) => handleUpdateStep(step.id, 'settingTemp', Number(e.target.value))}
+                                className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 font-medium text-center"
+                                placeholder="-"
+                              />
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Target Temp */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-middle">
+                           Target (°C)
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-3 border-r border-gray-50 bg-gray-50/30 align-top">
+                              <div className="flex items-center justify-center">
+                                  <input
+                                    type="number"
+                                    value={step.targetTemp}
+                                    onChange={(e) => handleUpdateStep(step.id, 'targetTemp', Number(e.target.value))}
+                                    className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 font-bold text-center"
+                                  />
+                              </div>
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Heating/Cooling Rate */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-middle">
+                           Heating/Cooling Rate (°C/min)
+                        </th>
+                        {stepsWithCalculations.map((step, index) => (
+                           <td key={step.id} className="p-3 border-r border-gray-50 align-top text-center">
+                              <span className={`text-sm font-medium ${step.type === 'RAMP' ? 'text-blue-600' : 'text-gray-300'}`}>
+                                 {getStepRate(step, index) || '-'}
+                              </span>
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Criteria/Limit */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-top">
+                           Criteria/Limit
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-2 border-r border-gray-50 align-top">
+                              <AutoResizeTextarea
+                                value={step.criteria || ''}
+                                onChange={(e) => handleUpdateStep(step.id, 'criteria', e.target.value)}
+                                className="border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-700 bg-white"
+                                placeholder="-"
+                              />
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Position */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-top">
+                           ตำแหน่งของ Sensor
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-2 border-r border-gray-50 bg-gray-50/30 align-top">
+                              <AutoResizeTextarea
+                                value={step.position}
+                                onChange={(e) => handleUpdateStep(step.id, 'position', e.target.value)}
+                                className="border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-700 bg-white"
+                              />
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Duration */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-middle">
+                           Duration (h)
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-3 border-r border-gray-50 align-top">
+                              {(step.type !== 'Start' && step.type !== 'START' && step.type !== 'END') ? (
+                                <input
+                                  type="number"
+                                  value={step.duration}
+                                  onChange={(e) => handleUpdateStep(step.id, 'duration', Number(e.target.value))}
+                                  className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 font-bold text-center"
+                                />
+                              ) : (
+                                <span className="text-gray-400 text-center block py-2">-</span>
+                              )}
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Start Time (Calculated) */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-middle">
+                           Start Time (Calc)
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-3 text-center border-r border-gray-50 align-top">
+                              <div className="flex flex-col items-center justify-center h-full">
+                                <span className="text-xs text-gray-500">{format(step.calculatedStart, 'dd-MM-yy')}</span>
+                                <span className="text-sm font-mono text-gray-800">{format(step.calculatedStart, 'HH:mm')}</span>
+                              </div>
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: End Time (Calculated) */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-middle">
+                           End Time (Calc)
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-3 text-center border-r border-gray-50 bg-gray-50/30 align-top">
+                              <div className="flex flex-col items-center justify-center h-full">
+                                <span className="text-xs text-gray-500">{format(step.calculatedEnd, 'dd-MM-yy')}</span>
+                                <span className="text-sm font-mono text-gray-800">{format(step.calculatedEnd, 'HH:mm')}</span>
+                              </div>
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Notes */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-top">
+                           Notes
+                        </th>
+                        {stepsWithCalculations.map(step => (
+                           <td key={step.id} className="p-2 border-r border-gray-50 align-top">
+                              <AutoResizeTextarea
+                                value={step.notes}
+                                onChange={(e) => handleUpdateStep(step.id, 'notes', e.target.value)}
+                                placeholder={step.type === 'Start' ? "Starting profile" : "Add note.."}
+                                className={`border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-700 bg-white ${step.type === 'Start' ? 'text-gray-400 italic' : ''}`}
+                              />
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Actions */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left align-middle">
+                           Actions
+                        </th>
+                        {stepsWithCalculations.map((step, index) => (
+                           <td key={step.id} className="p-3 text-center border-r border-gray-50 align-middle">
+                              {index !== 0 && (
+                                <button 
+                                  onClick={() => handleRemoveStep(step.id)}
+                                  className="text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors p-2 rounded-lg"
+                                  title="Delete Step"
+                                >
+                                  <Trash2 className="w-5 h-5" />
+                                </button>
+                              )}
+                           </td>
+                        ))}
+                     </tr>
+
+                  </tbody>
+                </table>
+              </div>
+              
+              <div className="mt-4 bg-blue-50 rounded-lg p-3 text-sm text-blue-800 border border-blue-100 flex items-start gap-2">
+                 <div className="mt-0.5">ℹ️</div>
+                 <p>
+                   Define your profile by adding steps. The "Timestamp" is calculated automatically based on the Start Date ({format(parseISO(startDate), 'dd/MM/yyyy HH:mm')}) and cumulative duration.
+                 </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Timeline Details (Table Layout) - Read Only View */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 print:border-none print:shadow-none print:p-0 print:break-inside-avoid">
-             <h3 className="font-bold text-gray-800 text-base uppercase tracking-wider mb-4 print:mb-2">Timeline Details</h3>
+             <div className="flex items-center justify-between mb-4 print:mb-2">
+                <h3 className="font-bold text-gray-800 text-base uppercase tracking-wider">Timeline Details (Preview)</h3>
+             </div>
              
              {/* Wrapper matches Profile Steps Table wrapper style */}
              <div id="details-table-wrapper" className="border border-gray-200 rounded-lg overflow-x-auto bg-white shadow-sm custom-scrollbar print:border-none print:shadow-none print:overflow-visible">
@@ -621,7 +920,7 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
                   <thead>
                     <tr>
                        {/* Sticky Corner Header */}
-                       <th className="sticky left-0 z-20 bg-gray-50 border-b border-r border-gray-200 p-3 text-sm font-bold text-gray-500 uppercase w-36 min-w-[144px] text-left print:static print:border-gray-300 print:w-auto print:min-w-0">
+                       <th className="sticky left-0 z-20 bg-gray-50 border-b border-r border-gray-200 p-3 text-sm font-bold text-gray-500 uppercase w-48 min-w-[192px] text-left print:static print:border-gray-300 print:w-auto print:min-w-0">
                           Step
                        </th>
                        {/* Step Headers */}
@@ -633,8 +932,6 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
                                   className="h-10 flex items-center justify-center text-sm font-bold text-white uppercase tracking-wide w-full print:text-black print:bg-transparent print:border-b print:border-gray-300 print:h-auto print:py-1"
                                   style={{ backgroundColor: stepColor }}
                                >
-                                 {/* In print, use style for background, but force text color if needed. 
-                                     The style block sets print-color-adjust: exact so background prints. */}
                                  Step {idx + 1}
                                </div>
                             </th>
@@ -687,6 +984,18 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
                         {stepsWithCalculations.map(step => (
                            <td key={step.id} className="p-3 text-base font-bold text-gray-800 text-center border-r border-gray-50 bg-gray-50/30 print:bg-transparent print:border-gray-200">
                               {step.targetTemp}
+                           </td>
+                        ))}
+                     </tr>
+
+                     {/* Row: Heating/Cooling Rate */}
+                     <tr>
+                        <th className="sticky left-0 z-10 bg-gray-50 border-r border-gray-200 p-3 text-sm font-medium text-gray-600 text-left print:static print:border-gray-300">
+                           Rate (°C/min)
+                        </th>
+                        {stepsWithCalculations.map((step, index) => (
+                           <td key={step.id} className="p-3 text-base text-gray-600 text-center border-r border-gray-50 print:border-gray-200">
+                              {getStepRate(step, index) || '-'}
                            </td>
                         ))}
                      </tr>
@@ -759,180 +1068,6 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({ initialProfile, onSave, o
                   </tbody>
                 </table>
              </div>
-          </div>
-
-          {/* Section 3: Profile Steps Table (Moved Down) - HIDDEN IN PRINT */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col print:hidden">
-            <div className="p-6 flex items-center justify-between border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-gray-100 rounded-md">
-                  <Clock className="w-5 h-5 text-gray-600" />
-                </div>
-                <h2 className="text-xl font-bold text-gray-800">Profile Steps</h2>
-              </div>
-              <button
-                onClick={handleAddStep}
-                className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded-md text-base font-medium flex items-center gap-1.5 transition-all shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
-                Add Step
-              </button>
-            </div>
-
-            <div className="p-6">
-              <div className="border border-gray-200 rounded-lg overflow-x-auto bg-white shadow-sm custom-scrollbar">
-                <table className="w-full text-base min-w-[1200px]">
-                  <thead className="bg-gray-50 text-sm text-gray-500 uppercase font-semibold tracking-wider text-left border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 w-16 text-center">#</th>
-                      <th className="px-4 py-3 w-32">Step Type</th>
-                      <th className="px-4 py-3 w-auto min-w-[140px]">วัตถุประสงค์</th>
-                      <th className="px-4 py-3 w-28">Setting (C)</th>
-                      <th className="px-4 py-3 w-28">Target (°C)</th>
-                      <th className="px-4 py-3 w-auto min-w-[140px]">Criteria/Limit</th>
-                      <th className="px-4 py-3 w-auto min-w-[140px]">ตำแหน่งของ Sensor</th>
-                      <th className="px-4 py-3 w-24">Dur (Hrs)</th>
-                      <th className="px-4 py-3 w-32">Timestamp</th>
-                      <th className="px-4 py-3 w-auto min-w-[180px]">Notes / Actions</th>
-                      <th className="px-2 py-3 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {stepsWithCalculations.map((step, index) => {
-                      const stepColor = STEP_COLORS[index % STEP_COLORS.length];
-                      return (
-                        <tr key={step.id} className="group hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 align-top text-center">
-                            <span 
-                              className="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-sm font-bold shadow-sm"
-                              style={{ backgroundColor: stepColor }}
-                            >
-                              {index + 1}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            {index === 0 ? (
-                              <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-sm font-bold rounded">Start</span>
-                            ) : (
-                              <div className="relative">
-                                <select 
-                                  value={step.type}
-                                  onChange={(e) => handleUpdateStep(step.id, 'type', e.target.value)}
-                                  className="appearance-none w-full border border-gray-300 text-gray-700 py-1.5 px-2.5 rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold bg-white"
-                                >
-                                  <option value="RAMP">RAMP</option>
-                                  <option value="HOLD">HOLD</option>
-                                  <option value="OFF">OFF</option>
-                                  <option value="END">END</option>
-                                </select>
-                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                                  <ArrowRight className="h-3 w-3 opacity-50" />
-                                </div>
-                              </div>
-                            )}
-                          </td>
-                          {/* Objective */}
-                          <td className="px-4 py-3 align-top">
-                            <AutoResizeTextarea
-                              value={step.objective || ''}
-                              onChange={(e) => handleUpdateStep(step.id, 'objective', e.target.value)}
-                              className="border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-700"
-                              placeholder="-"
-                            />
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="flex items-center">
-                                <input
-                                  type="number"
-                                  value={step.settingTemp ?? ''}
-                                  onChange={(e) => handleUpdateStep(step.id, 'settingTemp', Number(e.target.value))}
-                                  className="w-full border border-gray-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 font-medium text-base"
-                                  placeholder="-"
-                                />
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="flex items-center">
-                                <input
-                                  type="number"
-                                  value={step.targetTemp}
-                                  onChange={(e) => handleUpdateStep(step.id, 'targetTemp', Number(e.target.value))}
-                                  className="w-full border border-gray-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 font-medium text-base"
-                                />
-                                <span className="ml-1 text-gray-400 text-sm">°C</span>
-                            </div>
-                          </td>
-                          {/* Criteria/Limit - Auto resize width/height */}
-                          <td className="px-4 py-3 align-top">
-                            <AutoResizeTextarea
-                              value={step.criteria || ''}
-                              onChange={(e) => handleUpdateStep(step.id, 'criteria', e.target.value)}
-                              className="border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-700"
-                              placeholder="-"
-                            />
-                          </td>
-                          {/* Sensor Position - Auto resize width/height */}
-                          <td className="px-4 py-3 align-top">
-                            <AutoResizeTextarea
-                              value={step.position}
-                              onChange={(e) => handleUpdateStep(step.id, 'position', e.target.value)}
-                              className="border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-700"
-                            />
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            {(step.type !== 'Start' && step.type !== 'START' && step.type !== 'END') ? (
-                              <input
-                                type="number"
-                                value={step.duration}
-                                onChange={(e) => handleUpdateStep(step.id, 'duration', Number(e.target.value))}
-                                className="w-full border border-gray-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 text-base"
-                              />
-                            ) : (
-                              <span className="text-gray-400 text-center block">-</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="flex flex-col text-sm">
-                                <span className="text-gray-500 mb-0.5">
-                                  {format(step.calculatedEnd, 'dd/MM/yy')}
-                                </span>
-                                <span className="font-semibold text-gray-700">
-                                  {format(step.calculatedEnd, 'HH:mm')}
-                                </span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <AutoResizeTextarea
-                              value={step.notes}
-                              onChange={(e) => handleUpdateStep(step.id, 'notes', e.target.value)}
-                              placeholder={step.type === 'Start' ? "Starting profile" : "Add note.."}
-                              className={`border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-700 ${step.type === 'Start' ? 'text-gray-400 italic' : ''}`}
-                            />
-                          </td>
-                          <td className="px-2 py-3 align-top text-center">
-                            {index !== 0 && (
-                              <button 
-                                onClick={() => handleRemoveStep(step.id)}
-                                className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                              >
-                                <Trash2 className="w-5 h-5" />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              
-              <div className="mt-4 bg-blue-50 rounded-lg p-3 text-sm text-blue-800 border border-blue-100 flex items-start gap-2">
-                 <div className="mt-0.5">ℹ️</div>
-                 <p>
-                   Define your profile by adding steps. The "Timestamp" is calculated automatically based on the Start Date ({format(parseISO(startDate), 'dd/MM/yyyy HH:mm')}) and cumulative duration.
-                 </p>
-              </div>
-            </div>
           </div>
 
         </div>
